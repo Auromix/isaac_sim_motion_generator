@@ -1,0 +1,16 @@
+# IDE
+.idea/
+.vscode/
+
+# Install
+*.egg-info/
+build/
+dist/
+
+# Compile
+*.pyc
+*.pyo
+__pycache__
+
+# Isaac Sim softlink
+_isaac_sim
