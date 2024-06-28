@@ -1,0 +1,75 @@
+[ik]
+# Number of IK seeds to run per query problem
+num_seeds = 100
+# Position threshold for IK
+position_threshold = 0.005
+# Rotation threshold for IK
+rotation_threshold = 0.05
+# Whether to use a CUDA graph, a mechanism for optimizing the execution of CUDA programs
+use_cuda_graph = false
+# Whether to check self-collision
+self_collision_check = true
+# Whether to optimize self-collision
+self_collision_opt = true
+# Distance(in meters) at which collision checking is activated
+collision_activation_distance = 0.02
+
+[motion_generation]
+# Interpolation dt to use for output trajectory
+interpolation_dt = 0.02
+# Distance(in meters) at which collision checking is activated
+collision_activation_distance = 0.05
+# Maximum number of steps to interpolate
+interpolation_steps = 5000
+# The number of IK seeds to run per query problem
+num_ik_seeds = 30
+# The number of trajectory optimization seeds to use per query problem
+num_trajopt_seeds = 12
+# The number of iterations of the gradient descent trajectory optimizer
+grad_trajopt_iters = 50
+# Whether to evaluate the interpolated trajectory
+evaluate_interpolated_trajectory = true
+# The number of time steps for the trajectory optimization
+trajopt_tsteps = 32
+# Whether to use a CUDA graph, a mechanism for optimizing the execution of CUDA programs
+use_cuda_graph = false
+# Number of graph planning seeds to use per query problem
+num_graph_seeds = 1
+# Whether to check self-collision
+self_collision_check = true
+# Maximum time of trajectory execution
+maximum_trajectory_time = 15
+# Scale factor for velocity
+velocity_scale = 1.0
+# Scale factor for acceleration
+acceleration_scale = 1.0
+# Scale factor for jerk
+jerk_scale = 1.0
+# Scale factor for fine-tuning dt
+finetune_dt_scale = 0.98
+
+[motion_generation.plan]
+# Whether to enable graph planning
+enable_graph = false
+# Whether to enable trajectory optimization
+enable_opt = true
+# Whether to use neural network for IK seed generation
+use_nn_ik_seed = true
+# Whether graph planning needs to be successful
+need_graph_success = false
+# Maximum number of planning attempts
+max_attempts = 60
+# Timeout for planning in seconds
+timeout = 10.0
+# Number of attempts after which graph planning is enabled
+enable_graph_attempt = 3
+# Whether to enable partial IK optimization
+partial_ik_opt = false
+# Success ratio for planning
+success_ratio = 1
+# Whether to fail on invalid query
+fail_on_invalid_query = true
+# Enables retiming trajectory optimization, useful for getting low jerk trajectories.
+enable_finetune_trajopt = false
+# Whether to parallelize fine-tuning of trajectory optimization
+parallel_finetune = false
