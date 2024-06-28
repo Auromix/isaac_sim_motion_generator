@@ -60,8 +60,6 @@ cd isaac_sim_motion_generator
 bash config_isaac_sim.sh
 ```
 
-`
-
 ### For System python/Conda python
 
 Isaac sim motion generator can also be installed in system python or conda python.
@@ -88,4 +86,8 @@ omni_python examples/inverse_kinematics.py
 
 ```bash
 omni_python examples/motion_generation.py
+```
+
+```bash
+omni_python examples/motion_generation_with_collision_avoidance.py
 ```

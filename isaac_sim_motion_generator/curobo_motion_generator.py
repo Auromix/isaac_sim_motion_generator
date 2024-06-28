@@ -21,7 +21,7 @@ from curobo.wrap.reacher.motion_gen import MotionGenConfig
 from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
 from curobo.wrap.reacher.motion_gen import PoseCostMetric
 from curobo.cuda_robot_model.cuda_robot_model import CudaRobotModel
-
+from curobo.util.usd_helper import UsdHelper
 
 # Others
 import numpy as np
@@ -52,6 +52,7 @@ class CuroboMotionGenerator:
         """
         # Init logger
         self.logger = self._init_logger()
+
         # Get path of Curobo Motion Generator
         self.curobo_motion_generator_dir = os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))
@@ -71,12 +72,19 @@ class CuroboMotionGenerator:
         self.user_config = self.load_user_config(user_config_file_name)
         # Init kinematics
         self.init_kinematics()
+        # Init usd helper for isaac sim
+        self.curobo_usd_helper = None
 
     def _init_logger(self):
         """Initialize logger."""
         from auro_utils.loggers.logger import Logger
+        from curobo.util.logger import log_error, setup_curobo_logger
 
-        return Logger(log_level="debug", use_file_log=False, log_path=None)
+        # Setup curobo logger
+        setup_curobo_logger("warn")
+        # Setup auro_logger
+        auro_logger = Logger(log_level="debug", use_file_log=False, log_path=None)
+        return auro_logger
 
     def load_robot_config(self, robot_config_file_name: str = "ur5.yml"):
         """Load robot configuration.
@@ -108,10 +116,8 @@ class CuroboMotionGenerator:
                 get_assets_path(), robot_config["kinematics"]["urdf_path"]
             )
             self.urdf_file_name = get_filename(self.urdf_full_path)
-            self.logger.log_debug(
-                f"Robot URDF file path:\n{ self.urdf_full_path}\n")
-            self.logger.log_debug(
-                f"Robot URDF file name:\n{ self.urdf_file_name}\n")
+            self.logger.log_debug(f"Robot URDF file path:\n{ self.urdf_full_path}\n")
+            self.logger.log_debug(f"Robot URDF file name:\n{ self.urdf_file_name}\n")
 
             # Get directory path of urdf file
             self.directory_path_of_urdf = get_path_of_dir(self.urdf_full_path)
@@ -122,6 +128,9 @@ class CuroboMotionGenerator:
             # This list specifies the names of individual joints in the arm
             self.joint_names = robot_config["kinematics"]["cspace"]["joint_names"]
             self.logger.log_debug(f"Joint names:\n{self.joint_names}\n")
+            self.default_joint_positions = robot_config["kinematics"]["cspace"][
+                "retract_config"
+            ]
             self.robot_dof = len(self.joint_names)
             self.logger.log_debug(f"Robot DOF:\n{self.robot_dof}\n")
 
@@ -174,8 +183,7 @@ class CuroboMotionGenerator:
             self.logger.log_debug(
                 f"World configuration file path:\n{ world_config_full_path}\n"
             )
-            world_config = WorldConfig.from_dict(
-                load_yaml(world_config_full_path))
+            world_config = WorldConfig.from_dict(load_yaml(world_config_full_path))
 
             self.logger.log_debug(f"World configuration:\n{world_config}\n")
         except Exception as e:
@@ -196,7 +204,9 @@ class CuroboMotionGenerator:
         try:
             if config_file_name is None:
                 user_config_file_path = os.path.join(
-                    self.curobo_motion_generator_dir, "config", "default_user_config.toml"
+                    self.curobo_motion_generator_dir,
+                    "config",
+                    "default_user_config.toml",
                 )
 
             else:
@@ -205,8 +215,7 @@ class CuroboMotionGenerator:
                 )
                 # Check if the file exists
                 if not os.path.exists(user_config_file_path):
-                    self.logger.log_error(
-                        f"File {config_file_name} does not exist.")
+                    self.logger.log_error(f"File {config_file_name} does not exist.")
                     return None
 
             self.logger.log_debug(
@@ -225,16 +234,12 @@ class CuroboMotionGenerator:
         # Get robot base link and end effector link
         self.base_link = self.robot_config_dict["kinematics"]["base_link"]
         self.end_effector_link = self.robot_config_dict["kinematics"]["ee_link"]
-        self.logger.log_debug(
-            f"Robot Base Link:\n{self.base_link}\n")
-        self.logger.log_debug(
-            f"Robot End Effector Link:\n{self.end_effector_link}\n")
+        self.logger.log_debug(f"Robot Base Link:\n{self.base_link}\n")
+        self.logger.log_debug(f"Robot End Effector Link:\n{self.end_effector_link}\n")
 
         # Get kinematics model
-        self.logger.log_debug(
-            "Creating kinematics model instance...")
-        self.kinematics_model = CudaRobotModel(
-            self.robot_config.kinematics)
+        self.logger.log_debug("Creating kinematics model instance...")
+        self.kinematics_model = CudaRobotModel(self.robot_config.kinematics)
 
         # Instantiate IKSolverConfig
         self.ik_config = IKSolverConfig.load_from_robot_config(
@@ -244,12 +249,12 @@ class CuroboMotionGenerator:
             rotation_threshold=self.user_config["ik"]["rotation_threshold"],
             position_threshold=self.user_config["ik"]["position_threshold"],
             num_seeds=self.user_config["ik"]["num_seeds"],
-            self_collision_check=self.user_config[
-                "ik"]["self_collision_check"],
+            self_collision_check=self.user_config["ik"]["self_collision_check"],
             self_collision_opt=self.user_config["ik"]["self_collision_opt"],
             use_cuda_graph=self.user_config["ik"]["use_cuda_graph"],
-            collision_activation_distance=self.user_config[
-                "ik"]["collision_activation_distance"],
+            collision_activation_distance=self.user_config["ik"][
+                "collision_activation_distance"
+            ],
         )
 
         # Instantiate IKSolver
@@ -313,6 +318,8 @@ class CuroboMotionGenerator:
             finetune_dt_scale=self.user_config["motion_generation"][
                 "finetune_dt_scale"
             ],
+            # World collision cache
+            collision_cache={"obb": 30, "mesh": 100},
         )
 
         # Instantiate MotionGen with the motion generation configuration
@@ -395,9 +402,11 @@ class CuroboMotionGenerator:
         """
         return [quaternion[1], quaternion[2], quaternion[3], quaternion[0]]
 
-    def fk(self, joint_angles: List[float],
-           # link_name: str = None
-           ) -> List[List[float]]:
+    def fk(
+        self,
+        joint_angles: List[float],
+        # link_name: str = None
+    ) -> List[List[float]]:
         """Calculate forward kinematics(single).
 
         Args:
@@ -411,35 +420,33 @@ class CuroboMotionGenerator:
         """
         # Get joint angles in tensor format
         joint_angles = [joint_angles]
-        joint_angles = self.tensor_args.to_device(
-            joint_angles)
-        self.logger.log_debug(
-            f"Joint Angles:\n{joint_angles}\n")
+        joint_angles = self.tensor_args.to_device(joint_angles)
+        self.logger.log_debug(f"Joint Angles:\n{joint_angles}\n")
 
         # Compute Forward Kinematics
         self.logger.log_info("Computing Forward Kinematics...")
         fk_result = self.kinematics_model.get_state(joint_angles)
-        self.logger.log_debug(
-            f"Forward Kinematics Result:\n{fk_result}\n")
+        self.logger.log_debug(f"Forward Kinematics Result:\n{fk_result}\n")
 
         end_effector_position = fk_result.ee_position[0].tolist()
         end_effector_orientation_wxyz = fk_result.ee_quaternion[0].tolist()
         # Convert quaternion from [w, x, y, z] to [x, y, z, w]
-        end_effector_orientation_xyzw = self.wxzy_to_xyzw(
-            end_effector_orientation_wxyz)
+        end_effector_orientation_xyzw = self.wxzy_to_xyzw(end_effector_orientation_wxyz)
         # Concatenate position and orientation [x, y, z, qx, qy, qz, qw]
-        end_effector_pose = end_effector_position+end_effector_orientation_xyzw
+        end_effector_pose = end_effector_position + end_effector_orientation_xyzw
 
         self.logger.log_debug(
-            f"End Effector Pose[x,y,z,qx,qy,qz,qw]:\n{end_effector_pose}\n")
+            f"End Effector Pose[x,y,z,qx,qy,qz,qw]:\n{end_effector_pose}\n"
+        )
 
         link_pose = end_effector_pose
 
         return link_pose
 
-    def ik(self,
-           end_effector_pose: List,
-           ) -> Optional[List[float]]:
+    def ik(
+        self,
+        end_effector_pose: List,
+    ) -> Optional[List[float]]:
         """Solve inverse kinematics(single).
 
         Args:
@@ -455,18 +462,24 @@ class CuroboMotionGenerator:
         # Get end effector pose
         # x, y, z
         end_effector_position = self.tensor_args.to_device(
-            [end_effector_pose[0], end_effector_pose[1], end_effector_pose[2]])
+            [end_effector_pose[0], end_effector_pose[1], end_effector_pose[2]]
+        )
         # qx, qy, qz, qw to qw, qx, qy, qz
         end_effector_orientation = self.tensor_args.to_device(
-            [end_effector_pose[6], end_effector_pose[3], end_effector_pose[4], end_effector_pose[5]])
+            [
+                end_effector_pose[6],
+                end_effector_pose[3],
+                end_effector_pose[4],
+                end_effector_pose[5],
+            ]
+        )
 
         # Get pose in Pose format
         goal_pose = Pose(
             position=end_effector_position,
             quaternion=end_effector_orientation,
         )
-        self.logger.log_debug(
-            f"Goal Pose[x,y,z,qx,qy,qz,qw]:\n{goal_pose}\n")
+        self.logger.log_debug(f"Goal Pose[x,y,z,qx,qy,qz,qw]:\n{goal_pose}\n")
 
         # Solve Inverse Kinematics (single)
         self.logger.log_info("Solving Inverse Kinematics...")
@@ -475,16 +488,14 @@ class CuroboMotionGenerator:
         joint_angles_single_solution = ik_result.solution[ik_result.success]
         # Convert tensor to list
         if joint_angles_single_solution.numel() != 0:
-            joint_angles_single_solution = joint_angles_single_solution[0].tolist(
+            joint_angles_single_solution = joint_angles_single_solution[0].tolist()
+            self.logger.log_debug(f"Inverse Kinematics Result:\n{ik_result}\n")
+            self.logger.log_debug(
+                f"Inverse Kinematics Single Solution:\n{joint_angles_single_solution}\n"
             )
-            self.logger.log_debug(
-                f"Inverse Kinematics Result:\n{ik_result}\n")
-            self.logger.log_debug(
-                f"Inverse Kinematics Single Solution:\n{joint_angles_single_solution}\n")
             return joint_angles_single_solution
         else:
-            self.logger.log_warning(
-                f"Inverse Kinematics No Solution\n")
+            self.logger.log_warning(f"Inverse Kinematics No Solution\n")
             return None
 
     def motion_generate(
@@ -492,7 +503,6 @@ class CuroboMotionGenerator:
         start_joint_angles: List[float],
         goal_end_effector_pose: Optional[List[float]] = None,
         goal_joint_angles: Optional[List[float]] = None,
-
     ):
         """Generate robot arm motion.
         Args:
@@ -513,23 +523,21 @@ class CuroboMotionGenerator:
                 "positions": [[joint_angle1, joint_angle2, ...], [joint_angle1, joint_angle2, ...]],
                 "velocities": [[...], [...]],
                 "accelerations": [[...], [...]],
-                "jerks": [[...], [...]]
+                "jerks": [[...], [...]],
+                "raw_data: raw_data,
                 }
 
         """
 
         if goal_joint_angles is None and goal_end_effector_pose is not None:
-            self.logger.log_debug(
-                "Start Joint Angles to Goal End Effector Pose Mode")
+            self.logger.log_debug("Start Joint Angles to Goal End Effector Pose Mode")
             # Get start joint angles
             start_joint_angles = start_joint_angles
             start_joint_angles = JointState.from_position(
                 position=self.tensor_args.to_device([start_joint_angles]),
-                joint_names=self.joint_names[0: len(start_joint_angles)],
+                joint_names=self.joint_names[0 : len(start_joint_angles)],
             )
-            self.logger.log_info(
-                f"Start Joint Angles:\n{start_joint_angles.position}"
-            )
+            self.logger.log_info(f"Start Joint Angles:\n{start_joint_angles.position}")
 
             # Get goal pose
             goal_pose = goal_end_effector_pose
@@ -545,7 +553,8 @@ class CuroboMotionGenerator:
             )
             self.logger.log_debug(f"Pose Instance:\n{goal_pose}\n")
             self.logger.log_info(
-                f"Goal Pose[x,y,z,qx,qy,qz,qw]:\n{goal_end_effector_pose}")
+                f"Goal Pose[x,y,z,qx,qy,qz,qw]:\n{goal_end_effector_pose}"
+            )
 
             # Plan single(cartesian space)
             try:
@@ -555,44 +564,36 @@ class CuroboMotionGenerator:
                 )
 
             except Exception as e:
-                self.logger.log_error(
-                    f"Error occurred during motion generation. {e}")
+                self.logger.log_error(f"Error occurred during motion generation. {e}")
                 return None
 
         elif goal_joint_angles is not None and goal_end_effector_pose is None:
-            self.logger.log_debug(
-                "Start Joint Angles to Goal Joint Angles Mode")
+            self.logger.log_debug("Start Joint Angles to Goal Joint Angles Mode")
 
             # Get start joint angles
             start_joint_angles = start_joint_angles
             start_joint_angles = JointState.from_position(
-                position=self.tensor_args.to_device(
-                    [start_joint_angles]),
-                joint_names=self.joint_names[0:len(
-                    start_joint_angles)],
+                position=self.tensor_args.to_device([start_joint_angles]),
+                joint_names=self.joint_names[0 : len(start_joint_angles)],
             )
-            self.logger.log_info(
-                f"Start Joint Angles\n{start_joint_angles.position}")
+            self.logger.log_info(f"Start Joint Angles\n{start_joint_angles.position}")
 
             # Get goal joint angles
             goal_joint_angles = JointState.from_position(
-                position=self.tensor_args.to_device(
-                    [goal_joint_angles]),
-                joint_names=self.joint_names[0:len(
-                    goal_joint_angles)],
+                position=self.tensor_args.to_device([goal_joint_angles]),
+                joint_names=self.joint_names[0 : len(goal_joint_angles)],
             )
-            self.logger.log_info(
-                f"Goal Joint Angles\n{goal_joint_angles.position}")
+            self.logger.log_info(f"Goal Joint Angles\n{goal_joint_angles.position}")
 
             # Plan single (joint space)
             try:
                 self.logger.log_info("Generating Motion...")
                 motion_gen_result = self.motion_gen.plan_single_js(
-                    start_joint_angles, goal_joint_angles, self.motion_gen_plan_config)
+                    start_joint_angles, goal_joint_angles, self.motion_gen_plan_config
+                )
 
             except Exception as e:
-                self.logger.log_error(
-                    f"Error occurred during motion generation. {e}")
+                self.logger.log_error(f"Error occurred during motion generation. {e}")
                 return None
 
         else:
@@ -605,16 +606,127 @@ class CuroboMotionGenerator:
             self.logger.log_success("Motion Generation Success.")
 
             # Generate solution dict to return
-            solution_dict_to_return = {"success": motion_gen_result.success.item(),
-                                       "joint_names": interpolated_solution.joint_names,
-                                       "positions": interpolated_solution.position.cpu().squeeze().numpy().tolist(),
-                                       "velocities": interpolated_solution.velocity.cpu().squeeze().numpy().tolist(),
-                                       "accelerations": interpolated_solution.acceleration.cpu().squeeze().numpy().tolist(),
-                                       "jerks": interpolated_solution.jerk.cpu().squeeze().numpy().tolist(),
-                                       "interpolation_dt": motion_gen_result.interpolation_dt}
+            solution_dict_to_return = {
+                "success": motion_gen_result.success.item(),
+                "joint_names": interpolated_solution.joint_names,
+                "positions": interpolated_solution.position.cpu()
+                .squeeze()
+                .numpy()
+                .tolist(),
+                "velocities": interpolated_solution.velocity.cpu()
+                .squeeze()
+                .numpy()
+                .tolist(),
+                "accelerations": interpolated_solution.acceleration.cpu()
+                .squeeze()
+                .numpy()
+                .tolist(),
+                "jerks": interpolated_solution.jerk.cpu().squeeze().numpy().tolist(),
+                "interpolation_dt": motion_gen_result.interpolation_dt,
+                "raw_data": interpolated_solution,
+            }
 
             return solution_dict_to_return
         else:
             self.logger.log_warning("Motion Generation Failed.")
             self.logger.log_warning(motion_gen_result.status)
             return None
+
+    def update_obstacle_from_isaac_sim(
+        self, world, robot_prim_path: str, ignore_prim_paths: List[str]
+    ):
+        """Update obstacle world from isaac sim.
+
+        Args:
+            world (World): The world object from isaac sim.
+            robot_prim_path (str): The root prim path of the robot.
+            ignore_prim_paths (List[str]): The prim paths of the obstacles to ignore.
+
+        """
+        # Init curobo usd helper
+        if self.curobo_usd_helper == None:
+            self.curobo_usd_helper = UsdHelper()
+            self.curobo_usd_helper.load_stage(world.stage)
+
+        # Get obstacles(mesh, cube,...) from isaac sim
+        obstacles = self.curobo_usd_helper.get_obstacles_from_stage(
+            reference_prim_path=robot_prim_path,
+            ignore_substring=ignore_prim_paths,
+        ).get_collision_check_world()
+        # Update curobo obstacle world
+        self.logger.log_debug("Updating obstacles from isaac sim...")
+        self.motion_gen.update_world(obstacles)
+        self.logger.log_debug(f"Updated {len(obstacles.objects)} obstacles.")
+
+    def get_joint_state_from_isaac_sim(self, robot_prim) -> JointState:
+        """Convert isaac sim joint state to curobo joint state.
+
+        Args:
+            robot_prim (Robot): The robot class instance in isaac sim.
+
+        Returns:
+            JointState: The joint state class instance in curobo.
+        """
+
+        # Get robot joint state in isaac sim
+        sim_robot_joint_state = robot_prim.get_joints_state()
+        # get joint names in isaac sim
+        sim_joint_names = robot_prim.dof_names
+        # Check
+        if np.any(np.isnan(sim_robot_joint_state.positions)):
+            self.logger.log_warning("Isaac sim has returned NAN joint position values.")
+        # Convert to curobo joint state
+        curobo_joint_state = JointState(
+            position=self.tensor_args.to_device(sim_robot_joint_state.positions),
+            velocity=self.tensor_args.to_device(sim_robot_joint_state.velocities),
+            acceleration=self.tensor_args.to_device(sim_robot_joint_state.velocities)
+            * 0.0,
+            jerk=self.tensor_args.to_device(sim_robot_joint_state.velocities) * 0.0,
+            joint_names=sim_joint_names,
+        )
+        # Get ordered joint state
+        curobo_joint_state = curobo_joint_state.get_ordered_joint_state(
+            self.motion_gen.kinematics.joint_names
+        )
+        return curobo_joint_state
+
+    def convert_solution_to_isaac_sim_action(self, solution: dict, robot_prim):
+        try:
+            from omni.isaac.core.utils.types import ArticulationAction
+        except ImportError:
+            raise ImportError(
+                "Failed to import ArticulationAction. Please make sure the Isaac environment is properly installed and configured."
+            )
+
+        # Get full joint space solution
+        full_joint_space_interpolated_solution = self.motion_gen.get_full_js(
+            solution["raw_data"]
+        )
+        isaac_sim_joint_names = robot_prim.dof_names
+
+        # Get ordered joint space solution
+        isaac_sim_joint_index = []
+        common_joint_names = []
+        for joint_name in isaac_sim_joint_names:
+            if joint_name in full_joint_space_interpolated_solution.joint_names:
+                isaac_sim_joint_index.append(robot_prim.get_dof_index(joint_name))
+                common_joint_names.append(joint_name)
+
+        ordered_joint_space_interpolated_solution = (
+            full_joint_space_interpolated_solution.get_ordered_joint_state(
+                common_joint_names
+            )
+        )
+
+        positions = ordered_joint_space_interpolated_solution.position
+        velocities = ordered_joint_space_interpolated_solution.velocity
+        actions = []
+
+        for i in range(len(positions)):
+            action = ArticulationAction(
+                joint_positions=positions[i].cpu().numpy(),
+                joint_velocities=velocities[i].cpu().numpy(),
+                joint_indices=isaac_sim_joint_index,
+            )
+            actions.append(action)
+        return actions
