@@ -1,9 +1,0 @@
-numpy
-scipy
-matplotlib
-opencv-python
-open3d
-pybind11
-jax
-toml
-auro_utils
