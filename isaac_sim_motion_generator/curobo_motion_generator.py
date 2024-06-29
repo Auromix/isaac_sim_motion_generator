@@ -255,6 +255,8 @@ class CuroboMotionGenerator:
             collision_activation_distance=self.user_config["ik"][
                 "collision_activation_distance"
             ],
+            collision_checker_type=CollisionCheckerType.MESH,
+            collision_cache={"obb": 30, "mesh": 300},
         )
 
         # Instantiate IKSolver
@@ -496,6 +498,92 @@ class CuroboMotionGenerator:
             return joint_angles_single_solution
         else:
             self.logger.log_warning(f"Inverse Kinematics No Solution\n")
+            return None
+
+    def ik_batch(
+        self,
+        end_effector_poses: List[List[float]],
+    ) -> Optional[List[float]]:
+        """Solve inverse kinematics(batch).
+
+        Args:
+            end_effector_poses:
+                end effector pose in format of [[x, y, z, qx, qy, qz, qw], [...]]
+
+        Returns:
+            joint_angles_solutions:
+                joint angles solutions in format of [[q1, q2, q3, q4, q5, q6, q7,...], [...]]
+        """
+        goal_poses = [0] * len(end_effector_poses)
+        end_effector_positions = [0] * len(end_effector_poses)
+        end_effector_orientations = [0] * len(end_effector_poses)
+        # Get end effector poses
+        # x, y, z
+
+        for pose_index, pose in enumerate(end_effector_poses):
+            # end_effector_positions[pose_index]=self.tensor_args.to_device(
+            #     [
+            #         pose[0],
+            #         pose[1],
+            #         pose[2],
+            #     ]
+            # )
+            end_effector_positions[pose_index] = [
+                pose[0],
+                pose[1],
+                pose[2],
+            ]
+
+            # qx, qy, qz, qw to qw, qx, qy, qz
+            # end_effector_orientations[pose_index] = self.tensor_args.to_device(
+            #     [
+            #         pose[6],
+            #         pose[3],
+            #         pose[4],
+            #         pose[5],
+            #     ]
+            # )
+            end_effector_orientations[pose_index] = [
+                pose[6],
+                pose[3],
+                pose[4],
+                pose[5],
+            ]
+
+        # Get pose in Pose format
+        goal_poses = Pose(
+            position=self.tensor_args.to_device(end_effector_positions),
+            quaternion=self.tensor_args.to_device(end_effector_orientations),
+        )
+        # self.logger.log_debug(f"Goal Poses[[x,y,z,qx,qy,qz,qw],[...]]:\n{goal_poses}\n")
+
+        # Solve Inverse Kinematics (batch)
+        self.logger.log_info("Solving Batch Inverse Kinematics...")
+
+        ik_result = self.ik_solver.solve_batch(goal_poses)
+        # Get solve time
+        solve_time = ik_result.solve_time
+        # Get batch
+        num_of_poses = goal_poses.batch
+        self.logger.log_debug(f"Solved {num_of_poses} IK in {solve_time} seconds\n")
+        # Get success if any SIK success
+        success = torch.any(ik_result.success)
+        num_of_success = torch.sum(ik_result.success)
+        self.logger.log_debug(f"Batch IK Success: {num_of_success}/{num_of_poses}")
+        if success:
+            results = ik_result.solution.cpu().tolist()
+            # Convert to list of solutions
+            joint_angles_solutions = []
+            for result in results:
+                joint_angles_solutions.append(result[0])
+
+            self.logger.log_debug(
+                f"Batch Inverse Kinematics Solutions:\n{joint_angles_solutions}\n"
+            )
+
+            return joint_angles_solutions
+        else:
+            self.logger.log_warning("All Inverse Kinematics No Solution\n")
             return None
 
     def motion_generate(
