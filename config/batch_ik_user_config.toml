@@ -1,6 +1,6 @@
 [ik]
 # Number of IK seeds to run per query problem
-num_seeds = 20
+num_seeds = 100
 # Position threshold for IK
 position_threshold = 0.005
 # Rotation threshold for IK
@@ -8,21 +8,21 @@ rotation_threshold = 0.05
 # Whether to use a CUDA graph, a mechanism for optimizing the execution of CUDA programs
 use_cuda_graph = true
 # Whether to check self-collision
-self_collision_check = false
+self_collision_check = true
 # Whether to optimize self-collision
-self_collision_opt = false
+self_collision_opt = true
 # Distance(in meters) at which collision checking is activated
 collision_activation_distance = 0.001
 
 [motion_generation]
 # Interpolation dt to use for output trajectory
-interpolation_dt = 0.004
+interpolation_dt = 0.02
 # Distance(in meters) at which collision checking is activated
 collision_activation_distance = 0.005
 # Maximum number of steps to interpolate
 interpolation_steps = 5000
 # The number of IK seeds to run per query problem
-num_ik_seeds = 50
+num_ik_seeds = 30
 # The number of trajectory optimization seeds to use per query problem
 num_trajopt_seeds = 12
 # The number of iterations of the gradient descent trajectory optimizer

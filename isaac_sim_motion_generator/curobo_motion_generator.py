@@ -70,10 +70,12 @@ class CuroboMotionGenerator:
         self.world_config = self.load_world_config(world_config_file_name)
         # Load user config
         self.user_config = self.load_user_config(user_config_file_name)
-        # Init kinematics
-        self.init_kinematics()
+        self.ik_solver = None
+        self.motion_gen = None
         # Init usd helper for isaac sim
         self.curobo_usd_helper = None
+        # Init kinematics
+        self.init_kinematics()
 
     def _init_logger(self):
         """Initialize logger."""
@@ -256,7 +258,7 @@ class CuroboMotionGenerator:
                 "collision_activation_distance"
             ],
             collision_checker_type=CollisionCheckerType.MESH,
-            collision_cache={"obb": 30, "mesh": 300},
+            collision_cache={"obb": 30, "mesh": 10},
         )
 
         # Instantiate IKSolver
@@ -321,7 +323,7 @@ class CuroboMotionGenerator:
                 "finetune_dt_scale"
             ],
             # World collision cache
-            collision_cache={"obb": 30, "mesh": 100},
+            collision_cache={"obb": 30, "mesh": 10},
         )
 
         # Instantiate MotionGen with the motion generation configuration
@@ -517,17 +519,8 @@ class CuroboMotionGenerator:
         goal_poses = [0] * len(end_effector_poses)
         end_effector_positions = [0] * len(end_effector_poses)
         end_effector_orientations = [0] * len(end_effector_poses)
-        # Get end effector poses
-        # x, y, z
-
         for pose_index, pose in enumerate(end_effector_poses):
-            # end_effector_positions[pose_index]=self.tensor_args.to_device(
-            #     [
-            #         pose[0],
-            #         pose[1],
-            #         pose[2],
-            #     ]
-            # )
+
             end_effector_positions[pose_index] = [
                 pose[0],
                 pose[1],
@@ -535,14 +528,6 @@ class CuroboMotionGenerator:
             ]
 
             # qx, qy, qz, qw to qw, qx, qy, qz
-            # end_effector_orientations[pose_index] = self.tensor_args.to_device(
-            #     [
-            #         pose[6],
-            #         pose[3],
-            #         pose[4],
-            #         pose[5],
-            #     ]
-            # )
             end_effector_orientations[pose_index] = [
                 pose[6],
                 pose[3],
@@ -567,15 +552,19 @@ class CuroboMotionGenerator:
         num_of_poses = goal_poses.batch
         self.logger.log_debug(f"Solved {num_of_poses} IK in {solve_time} seconds\n")
         # Get success if any SIK success
-        success = torch.any(ik_result.success)
+        any_success = torch.any(ik_result.success)
         num_of_success = torch.sum(ik_result.success)
         self.logger.log_debug(f"Batch IK Success: {num_of_success}/{num_of_poses}")
-        if success:
-            results = ik_result.solution.cpu().tolist()
-            # Convert to list of solutions
+
+        if any_success:
             joint_angles_solutions = []
-            for result in results:
-                joint_angles_solutions.append(result[0])
+            for success, solution in zip(
+                ik_result.success.squeeze(), ik_result.solution
+            ):
+                if success:
+                    joint_angles_solutions.append(solution.cpu().tolist()[0])
+                else:
+                    joint_angles_solutions.append(None)
 
             self.logger.log_debug(
                 f"Batch Inverse Kinematics Solutions:\n{joint_angles_solutions}\n"
@@ -584,7 +573,7 @@ class CuroboMotionGenerator:
             return joint_angles_solutions
         else:
             self.logger.log_warning("All Inverse Kinematics No Solution\n")
-            return None
+            return [None] * num_of_poses
 
     def motion_generate(
         self,
@@ -614,9 +603,7 @@ class CuroboMotionGenerator:
                 "jerks": [[...], [...]],
                 "raw_data: raw_data,
                 }
-
         """
-
         if goal_joint_angles is None and goal_end_effector_pose is not None:
             self.logger.log_debug("Start Joint Angles to Goal End Effector Pose Mode")
             # Get start joint angles
@@ -721,20 +708,30 @@ class CuroboMotionGenerator:
             return None
 
     def update_obstacle_from_isaac_sim(
-        self, world, robot_prim_path: str, ignore_prim_paths: List[str]
-    ):
+        self, world, robot_prim_path: str, ignore_prim_paths: List[str] = None
+    ) -> WorldConfig:
         """Update obstacle world from isaac sim.
 
         Args:
             world (World): The world object from isaac sim.
             robot_prim_path (str): The root prim path of the robot.
             ignore_prim_paths (List[str]): The prim paths of the obstacles to ignore.
+            Choose from one of the two options.
 
+        Returns:
+            WorldConfig: The updated obstacle world.
         """
         # Init curobo usd helper
-        if self.curobo_usd_helper == None:
+        if self.curobo_usd_helper is None:
             self.curobo_usd_helper = UsdHelper()
+        if self.curobo_usd_helper.stage is None:
             self.curobo_usd_helper.load_stage(world.stage)
+
+        all_items = world.stage.Traverse()
+        for item in all_items:
+            for key_to_ignore in ignore_prim_paths:
+                if key_to_ignore in str(item.GetPath()):
+                    self.logger.log_debug(f"Ignoring: {str(item.GetPath())}")
 
         # Get obstacles(mesh, cube,...) from isaac sim
         obstacles = self.curobo_usd_helper.get_obstacles_from_stage(
@@ -743,8 +740,13 @@ class CuroboMotionGenerator:
         ).get_collision_check_world()
         # Update curobo obstacle world
         self.logger.log_debug("Updating obstacles from isaac sim...")
-        self.motion_gen.update_world(obstacles)
+        # self.logger.log_debug(f"Obstacles: {obstacles}")
+        if self.ik_solver is not None:
+            self.ik_solver.update_world(obstacles)
+        if self.motion_gen is not None:
+            self.motion_gen.update_world(obstacles)
         self.logger.log_debug(f"Updated {len(obstacles.objects)} obstacles.")
+        return obstacles
 
     def get_joint_state_from_isaac_sim(self, robot_prim) -> JointState:
         """Convert isaac sim joint state to curobo joint state.

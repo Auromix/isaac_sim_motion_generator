@@ -17,7 +17,7 @@ requirements = [
     'jax',
     'toml',
     'auro_utils',
-    'usd-core'==23.11,
+    'usd-core==23.11',
 ]
 
 
