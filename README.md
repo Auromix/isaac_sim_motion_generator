@@ -51,15 +51,6 @@ bash config_isaac_sim_curobo_motion_generator.sh
 
 If you want to add your own custom robot model, please refer to the [curobo](https://curobo.org/) for instructions on how to create a custom robot model.
 
-#### Step 4: Configure Isaac sim
-
-Navigate to the `isaac_sim_motion_generator` directory and configure Isaac sim:
-
-```bash
-cd isaac_sim_motion_generator
-bash config_isaac_sim.sh
-```
-
 ### For System python/Conda python
 
 Isaac sim motion generator can also be installed in system python or conda python.

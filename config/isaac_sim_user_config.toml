@@ -8,11 +8,11 @@ rotation_threshold = 0.05
 # Whether to use a CUDA graph, a mechanism for optimizing the execution of CUDA programs
 use_cuda_graph = true
 # Whether to check self-collision
-self_collision_check = false
+self_collision_check = true
 # Whether to optimize self-collision
-self_collision_opt = false
+self_collision_opt = true
 # Distance(in meters) at which collision checking is activated
-collision_activation_distance = 0.001
+collision_activation_distance = 0.005
 
 [motion_generation]
 # Interpolation dt to use for output trajectory

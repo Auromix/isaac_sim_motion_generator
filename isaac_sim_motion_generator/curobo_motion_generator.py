@@ -820,3 +820,79 @@ class CuroboMotionGenerator:
             )
             actions.append(action)
         return actions
+
+    def set_constraint(self, hold_vec_weight: List[float]):
+        """Set constraint hold_vec_weight.
+        [roll, pitch, yaw, x, y, z]
+        1 means hold, 0 means free.
+        [1., 1., 1., 0., 1., 1.]= not allow move in y,z direction and rotation in x,y,z
+        [1., 1., 1., 0., 1., 0.]= not allow move in y direction and rotation in x,y,z
+        [0., 0., 0., 0., 1., 1.]= not allow move in y,z direction
+        https://curobo.org/source/advanced_examples/3_constrained_planning.html
+        Args:
+            hold_vec_weight:
+                hold_vec_weight for constraint.
+        """
+        self.motion_gen_plan_config.pose_cost_metric = PoseCostMetric(
+            hold_partial_pose=True,
+            hold_vec_weight=self.tensor_args.to_device(hold_vec_weight),
+        )
+        self.logger.log_debug(f"Set constraint hold_vec_weight: {hold_vec_weight}")
+
+        # TODO@Herman Ye: Add constraint to robot base frame, goal frame now.
+        # By default cuRobo constrains motions with respect to the goal frame.
+        # To instead use the robot’s base frame, use project_pose_to_goal_frame=False
+        # in curobo.wrap.reacher.motion_gen.MotionGenConfig.load_from_robot_config
+
+    def reset_constraint(self):
+        """Reset constraint hold_vec_weight to [0., 0., 0., 0., 0., 0.].
+        [roll, pitch, yaw, x, y, z]
+        1 means hold, 0 means free.
+        [1., 1., 1., 0., 1., 1.]= not allow move in y,z direction and rotation in x,y,z
+        [1., 1., 1., 0., 1., 0.]= not allow move in y direction and rotation in x,y,z
+        [0., 0., 0., 0., 1., 1.]= not allow move in y,z direction
+        https://curobo.org/source/advanced_examples/3_constrained_planning.html
+        """
+        default_hold_vec_weight = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.set_constraint(default_hold_vec_weight)
+        self.logger.log_debug(
+            f"Reset constraint hold_vec_weight to {default_hold_vec_weight}."
+        )
+
+        # TODO@Herman Ye: Add constraint to robot base frame, goal frame now.
+        # By default cuRobo constrains motions with respect to the goal frame.
+        # To instead use the robot’s base frame, use project_pose_to_goal_frame=False
+        # in curobo.wrap.reacher.motion_gen.MotionGenConfig.load_from_robot_config
+
+    def update_world_by_pointcloud(self, pointcloud_to_robot_base: np.ndarray):
+        """Update the collision world by a given pointcloud.
+
+        Args:
+            pointcloud_to_robot_base: pointcloud in robot base frame
+
+        """
+        from curobo.geom.types import WorldConfig, Mesh
+
+        if pointcloud_to_robot_base.shape[1] != 3:
+            self.logger.log_warning(
+                "Point cloud shape should be (n,3), where n is the number of points, skip world update."
+            )
+            return
+        point_cloud_curobo_world_config = WorldConfig(
+            mesh=[Mesh.from_pointcloud(pointcloud_to_robot_base)]
+        )
+        self.motion_gen.clear_world_cache()
+        self.motion_gen.reset(reset_seed=False)
+        self.motion_gen.update_world(point_cloud_curobo_world_config)
+        self.logger.log_debug("World updated by pointcloud.")
+
+    def reset_world(self):
+        """Reset the collision world to the default world configuration in config loader."""
+
+        # Clear world cache
+        self.motion_gen.clear_world_cache()
+        # Reset motion gen
+        self.motion_gen.reset(reset_seed=False)
+        # Update world with default world config in config loader
+        self.motion_gen.update_world(self.world_config)
+        self.logger.log_debug("World reset.")

@@ -2,9 +2,9 @@
 # Number of IK seeds to run per query problem
 num_seeds = 100
 # Position threshold for IK
-position_threshold = 0.005
+position_threshold = 0.003
 # Rotation threshold for IK
-rotation_threshold = 0.05
+rotation_threshold = 0.02
 # Whether to use a CUDA graph, a mechanism for optimizing the execution of CUDA programs
 use_cuda_graph = false
 # Whether to check self-collision

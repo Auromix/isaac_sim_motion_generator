@@ -14,7 +14,7 @@ requirements = [
     'opencv-python',
     'open3d',
     'pybind11',
-    'jax',
+    # 'jax',
     'toml',
     'auro_utils',
     'usd-core==23.11',
