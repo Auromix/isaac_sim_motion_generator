@@ -36,7 +36,7 @@ Navigate to the curobo directory and install dependencies and curobo:
 
 ```bash
 cd curobo
-omni_python -m pip install tomli wheel ninja
+omni_python -m pip install toml wheel ninja
 omni_python -m pip install -e .[isaacsim] --no-build-isolation
 ```
 
