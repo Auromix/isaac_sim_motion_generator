@@ -79,7 +79,7 @@ class CuroboMotionGenerator:
 
     def _init_logger(self):
         """Initialize logger."""
-        from auro_utils.loggers.logger import Logger
+        from auro_utils import Logger
         from curobo.util.logger import log_error, setup_curobo_logger
 
         # Setup curobo logger
